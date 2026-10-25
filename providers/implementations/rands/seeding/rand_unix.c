@@ -21,6 +21,18 @@
 #include "internal/nelem.h"
 #include "prov/seeding.h"
 
+#if defined(OPENSSL_SYS_OS2)
+# define INCL_DOSMISC
+# define INCL_DOSPROFILE
+# define INCL_DOSPROCESS
+# define INCL_DOSMODULEMGR
+# include <os2.h>
+# include <stdint.h>
+# include <stdlib.h>
+# include <string.h>
+# include <openssl/sha.h>
+#endif
+
 #ifndef OPENSSL_SYS_UEFI
 #ifdef __linux
 #include <sys/syscall.h>
@@ -627,6 +639,148 @@ void ossl_rand_pool_keep_random_devices_open(int keep)
  * of input from the different entropy sources (trust, quality,
  * possibility of blocking).
  */
+#if defined(OPENSSL_SYS_OS2)
+/*
+ * Port the historical OS/2 RAND_poll estimates to the provider seed pool.
+ * RAND_add() expresses estimated entropy in bytes; RAND_POOL uses bits.
+ */
+# define CMD_KI_ENABLE  (0x60)
+# define CMD_KI_RDCNT   (0x63)
+
+typedef struct _CPUUTIL {
+    ULONG ulTimeLow;
+    ULONG ulTimeHigh;
+    ULONG ulIdleLow;
+    ULONG ulIdleHigh;
+    ULONG ulBusyLow;
+    ULONG ulBusyHigh;
+    ULONG ulIntrLow;
+    ULONG ulIntrHigh;
+} CPUUTIL;
+
+static int os2_buffer_contains(const void *buffer, ULONG length,
+                               const ULONG *candidate)
+{
+    const uintptr_t begin = (uintptr_t)buffer;
+    const uintptr_t address = (uintptr_t)candidate;
+
+    return length >= sizeof(*candidate) && address >= begin
+        && address - begin <= length - sizeof(*candidate);
+}
+
+static int os2_rand_pool_add(RAND_POOL *pool, const void *buffer, size_t length,
+                             size_t entropy_bytes)
+{
+    if (entropy_bytes > length)
+        entropy_bytes = length;
+    return ossl_rand_pool_add(pool, buffer, length, entropy_bytes * 8);
+}
+
+static int os2_use_dosperfsyscall(void)
+{
+    static int checked = 0;
+    static int use_dosperfsyscall = 0;
+
+    if (!checked) {
+        const char *env = getenv("OPENSSL_USE_DOSPERFSYSCALL");
+
+        if (env != NULL) {
+            switch (*env) {
+            case 'T': case 't': case 'Y': case 'y': case 'O': case 'o':
+                use_dosperfsyscall = 1;
+                break;
+            default:
+                use_dosperfsyscall = atoi(env) > 0;
+                break;
+            }
+        }
+        checked = 1;
+    }
+    return use_dosperfsyscall;
+}
+
+static size_t os2_pool_acquire_entropy(RAND_POOL *pool)
+{
+    QWORD timer_value = { 0 };
+    ULONG system_values[QSV_FOREGROUND_PROCESS] = { 0 };
+    ULONG state_length = 4 * 65536;
+    PVOID state_buffer = NULL;
+    ULONG thread_count = 0;
+    ULONG *thread_count_pointer = NULL;
+    unsigned char digest[SHA512_DIGEST_LENGTH] = { 0 };
+    unsigned char tmpbuf[32] = { 0 };
+    int i;
+
+    if (DosTmrQueryTime(&timer_value) == 0
+        && !os2_rand_pool_add(pool, (const unsigned char *)&timer_value,
+                              sizeof(timer_value), 2))
+        goto end;
+
+    if (DosQuerySysInfo(1, QSV_FOREGROUND_PROCESS, system_values,
+                        sizeof(system_values)) == 0
+        && !os2_rand_pool_add(pool, (const unsigned char *)system_values,
+                              sizeof(system_values), 4))
+        goto end;
+
+    if (os2_use_dosperfsyscall()) {
+        static volatile int perfsyscall_initcount = 0;
+        CPUUTIL util[16];
+
+        memset(util, 0, sizeof(util));
+        if (perfsyscall_initcount == 0 && DosEnterCritSec() == 0) {
+            if (perfsyscall_initcount == 0)
+                DosPerfSysCall(CMD_KI_ENABLE, 0, 0, 0);
+            ++perfsyscall_initcount;
+            DosExitCritSec();
+        }
+        if (DosPerfSysCall(CMD_KI_RDCNT, (ULONG)util, 0, 0) == 0
+            && !os2_rand_pool_add(pool, (const unsigned char *)util,
+                                  sizeof(util), 10))
+            goto end;
+    } else {
+        for (i = 0; i < (int)sizeof(tmpbuf); i += 2) {
+            unsigned long value = (unsigned long)random();
+
+            tmpbuf[i] = (unsigned char)value;
+            tmpbuf[i + 1] = (unsigned char)(value >> 8);
+        }
+        if (!os2_rand_pool_add(pool, tmpbuf, sizeof(tmpbuf), sizeof(tmpbuf)))
+            goto end;
+    }
+
+    if (DosAllocMem(&state_buffer, state_length + 65535,
+                    PAG_READ | PAG_WRITE | PAG_COMMIT | OBJ_TILE) != 0)
+        goto end;
+
+    memset(state_buffer, 0, state_length);
+    if (DosQuerySysState(0x1F, 0, 0, 0, state_buffer, state_length) == 0) {
+        size_t estimated_entropy_bytes;
+
+        memcpy(&thread_count_pointer, state_buffer, sizeof(thread_count_pointer));
+        if (os2_buffer_contains(state_buffer, state_length, thread_count_pointer))
+            thread_count = *thread_count_pointer;
+
+        if (SHA512((const unsigned char *)state_buffer, state_length, digest) == NULL)
+            goto end;
+
+        estimated_entropy_bytes = thread_count < sizeof(digest)
+            ? thread_count : sizeof(digest);
+        if (!os2_rand_pool_add(pool, digest, sizeof(digest),
+                               estimated_entropy_bytes))
+            goto end;
+    }
+
+end:
+    if (state_buffer != NULL) {
+        OPENSSL_cleanse(state_buffer, state_length);
+        DosFreeMem(state_buffer);
+    }
+    OPENSSL_cleanse(digest, sizeof(digest));
+    OPENSSL_cleanse(tmpbuf, sizeof(tmpbuf));
+    return ossl_rand_pool_entropy_available(pool);
+}
+#endif
+
 size_t ossl_pool_acquire_entropy(RAND_POOL *pool)
 {
 #if defined(OPENSSL_RAND_SEED_NONE)
@@ -635,6 +789,12 @@ size_t ossl_pool_acquire_entropy(RAND_POOL *pool)
     size_t entropy_available = 0;
 
     (void)entropy_available; /* avoid compiler warning */
+
+#if defined(OPENSSL_SYS_OS2)
+    entropy_available = os2_pool_acquire_entropy(pool);
+    if (entropy_available > 0)
+        return entropy_available;
+#endif
 
 #if defined(OPENSSL_RAND_SEED_GETRANDOM)
     {

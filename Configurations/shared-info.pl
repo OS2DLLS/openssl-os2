@@ -97,4 +97,7 @@ my %shared_info;
             shared_sonameflag => "-Wl,-h,",
         };
     },
+    'os2-shared' => {
+        shared_ldflag         => '-shared -Zomf -Zsym -Zmap -Zcrtdll',
+    },
 );

@@ -55,8 +55,7 @@ perl "$SRC/Configure" OS2-EMX \
     --cross-compile-prefix="$OS2EMX_PREFIX/bin/$OS2EMX_TARGET-" \
     --prefix=/usr --openssldir=/etc/ssl
 
-make -j2 AR="$OS2EMX_AR" ARFLAGS="-p512 -qc" RANLIB="$OS2EMX_RANLIB"
-make DESTDIR="$OS2EMX_SYSROOT" install_sw
+make -j2 AR="$OS2EMX_AR" ARFLAGS="-p512 -qc" RANLIB="$OS2EMX_RANLIB" DESTDIR="$OS2EMX_SYSROOT" install_sw
 ```
 
 The cross-compile prefix selects the target GCC; `AR` and `RANLIB` are set

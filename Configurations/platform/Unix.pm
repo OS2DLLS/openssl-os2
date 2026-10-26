@@ -53,12 +53,28 @@ sub staticname {
     return platform::BASE->staticname($_[1]);
 }
 
+sub sharedname_override {
+    # OS/2 can provide a comma-separated library=basename map. Apply it to
+    # full and simple names to avoid generating aliases with the old names.
+    my $map = $target{os2_shared_name_map};
+    return undef unless defined $map && !ref($map);
+    for my $entry (split /,/, $map) {
+        my ($library, $name) = split /=/, $entry, 2;
+        return $name if defined $name && $library eq $_[1];
+    }
+    return undef;
+}
+
 sub sharedname {
+    my $override = $_[0]->sharedname_override($_[1]);
+    return $override if defined $override;
     return platform::BASE::__concat(platform::BASE->sharedname($_[1]),
                                     ($_[0]->shlibvariant() // ''));
 }
 
 sub sharedname_simple {
+    my $override = $_[0]->sharedname_override($_[1]);
+    return $override if defined $override;
     return platform::BASE::__isshared($_[1]) ? $_[1] : undef;
 }
 

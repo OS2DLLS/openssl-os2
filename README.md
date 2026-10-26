@@ -112,6 +112,7 @@ detailed instructions about building and installing OpenSSL. For some
 platforms, the installation instructions are amended by a platform specific
 document.
 
+ * [Notes for OS2 platforms](NOTES-OS2.md)
  * [Notes for UNIX-like platforms](NOTES-UNIX.md)
  * [Notes for Android platforms](NOTES-ANDROID.md)
  * [Notes for Windows platforms](NOTES-WINDOWS.md)

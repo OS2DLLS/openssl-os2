@@ -47,7 +47,7 @@ tools separate from the OS/2 compiler and target sysroot.
 ```sh
 nix-shell /path/to/shell.nix
 SRC="$OS2EMX_OPENSSL_SOURCE"
-BUILD="$OS2EMX_OPENSSL_BUILD_ROOT/os2-cross"
+BUILD="$OS2EMX_OPENSSL_BUILD_ROOT"
 mkdir -p "$BUILD"
 cd "$BUILD"
 

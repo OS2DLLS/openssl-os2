@@ -759,7 +759,7 @@ install_ssldirs:
 		chmod 644 "$(DESTDIR)$(OPENSSLDIR)/ct_log_list.cnf"; \
 	fi
 
-install_dev: install_runtime_libs
+install_dev: install_runtime_libs $(INSTALL_EXPORTERS_PKGCONFIG) $(INSTALL_EXPORTERS_CMAKE)
 	@[ -n "$(INSTALLTOP)" ] || (echo INSTALLTOP should not be empty; exit 1)
 	@$(ECHO) "*** Installing development files"
 	@$(PERL) $(SRCDIR)/util/mkdir-p.pl "$(DESTDIR)$(INSTALLTOP)/include/openssl"

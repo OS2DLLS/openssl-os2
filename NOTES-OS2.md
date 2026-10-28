@@ -38,32 +38,45 @@ consumer instead.
 
 #### Cross-compile from Linux
 
-Enter the project's Nix shell (the `shell.nix` environment defines
-`OS2EMX_PREFIX`, `OS2EMX_SYSROOT`, `OS2EMX_TARGET`, `OS2EMX_CC`, `OS2EMX_AR`,
-`OS2EMX_RANLIB`, `OS2EMX_OPENSSL_SOURCE`, and
-`OS2EMX_OPENSSL_BUILD_ROOT`). Use an empty build directory and keep host build
-tools separate from the OS/2 compiler and target sysroot.
+Enter `/data/shell.nix` in target mode. It defines the generic toolchain
+variables (`OS2EMX_PREFIX`, `OS2EMX_SYSROOT`, `OS2EMX_TARGET`, `OS2EMX_CC`,
+`OS2EMX_AR`, `OS2EMX_RANLIB`, and `OS2EMX_BUILD_ROOT`); it deliberately does
+not contain OpenSSL- or application-specific source paths. The root
+`/data/Makefile` derives the OpenSSL source/build paths and sets
+`OS2EMX_PTHREAD_ROOT` for the OpenSSL target.
 
 ```sh
-nix-shell /path/to/shell.nix
-SRC="$OS2EMX_OPENSSL_SOURCE"
-BUILD="$OS2EMX_OPENSSL_BUILD_ROOT"
+nix-shell /data/shell.nix
+cd /data
+make openssl
+```
+
+For a direct diagnostic build (rather than the root Makefile target), set the
+OpenSSL-specific paths in the active target shell and use a separate build
+directory under `OS2EMX_BUILD_ROOT`:
+
+```sh
+SRC=/data/openssl-os2
+BUILD="$OS2EMX_BUILD_ROOT/openssl-os2"
+export OS2EMX_OPENSSL_SOURCE="$SRC"
+export OS2EMX_OPENSSL_BUILD_ROOT="$BUILD"
+export OS2EMX_PTHREAD_ROOT="$OS2EMX_SYSROOT"
 mkdir -p "$BUILD"
 cd "$BUILD"
 
 perl "$SRC/Configure" OS2-EMX \
-    --cross-compile-prefix="$OS2EMX_PREFIX/bin/$OS2EMX_TARGET-" \
     --prefix=/usr --openssldir=/etc/ssl
 
 make -j2 AR="$OS2EMX_AR" ARFLAGS="-p512 -qc" RANLIB="$OS2EMX_RANLIB" DESTDIR="$OS2EMX_SYSROOT" install_sw
 ```
 
-The cross-compile prefix selects the target GCC; `AR` and `RANLIB` are set
-explicitly because EMX uses an OMF archiver and GNU `ranlib` must not process
-its archives. `DESTDIR` stages the installation under the target sysroot
-without installing into the Linux host. A successful Linux build or staged
-install does not by itself prove that the DLLs load or run on OS/2; perform a
-separate OS/2 runtime smoke test.
+The active shell already exports `CC` as the target compiler, so no
+`--cross-compile-prefix` is needed. `AR` and `RANLIB` are set explicitly:
+`emxomfar` writes OMF archives, and GNU `ranlib` must not process them.
+`DESTDIR` stages the `/usr` installation under the target sysroot without
+installing into the Linux host. A successful Linux build or staged install
+does not by itself prove that the DLLs load or run on OS/2; perform a separate
+OS/2 runtime smoke test.
 
 Specific notes on upgrading to OpenSSL 3.x from previous versions can be found
 in the [ossl-guide-migration(7ossl)] manual page.

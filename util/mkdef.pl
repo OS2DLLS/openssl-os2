@@ -126,6 +126,9 @@ my %OS_data = (
                      sort       => OpenSSL::Ordinals::by_name(),
                      platforms  => { WIN32                      => 1,
                                      _WIN32                     => 1 } },
+    os2         => { writer     => \&writer_os2,
+                     sort       => OpenSSL::Ordinals::by_name(),
+                     platforms  => { UNIX                       => 1 } },
     windows     => 'WINDOWS',   # alias
     WIN32       => 'WINDOWS',   # alias
     win32       => 'WIN32',     # alias
@@ -310,6 +313,21 @@ _____
             print "=". platform->export2internal($_->name());
         }
         print "\n";
+    }
+}
+
+sub writer_os2 {
+    print <<"_____";
+LIBRARY         $libname INITINSTANCE TERMINSTANCE
+DESCRIPTION     'OpenSSL shared library'
+
+EXPORTS
+_____
+    for (@_) {
+        my $name = $_->name();
+        # EMX C symbols carry a leading underscore; export the public OpenSSL
+        # name as an alias so GetProcAddress-style lookups resolve correctly.
+        print "    ", $name, "=_", $name, "\n";
     }
 }
 
